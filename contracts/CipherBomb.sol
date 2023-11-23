@@ -3,15 +3,19 @@
 pragma solidity 0.8.19;
 
 import "fhevm/lib/TFHE.sol";
+import "fhevm/abstracts/EIP712WithModifier.sol";
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract CipherBomb is Ownable {
+contract CipherBomb is Ownable, EIP712WithModifier {
     uint public constant MIN_PLAYERS = 4;
     uint public constant MAX_PLAYERS = 6;
-    uint8 public constant TYPE_WIRE = 1;
-    uint8 public constant TYPE_BOMB = 2;
-    uint8 public constant TYPE_NEUTRAL = 3;
+
+    enum CardType {
+        WIRE,
+        BOMB,
+        NEUTRAL
+    }
 
     bool public gameRunning;
     bool public gameOpen;
@@ -39,8 +43,10 @@ contract CipherBomb is Ownable {
         euint8 neutrals;
     }
 
+    event GameOpen();
     event GameStart();
-    event Turn(uint8 turnIndex);
+    event Turn(uint8 index);
+    event CardPicked(uint8 cardType);
 
     event BombFound();
     event WireFound();
@@ -50,7 +56,7 @@ contract CipherBomb is Ownable {
 
     event FalseDeal();
 
-    constructor() {
+    constructor() EIP712WithModifier("Authorization token", "1") {
         gameRunning = false;
         gameOpen = false;
     }
@@ -65,6 +71,8 @@ contract CipherBomb is Ownable {
         delete players;
         numberOfPlayers = 0;
         addPlayer(msg.sender);
+
+        emit GameOpen();
     }
 
     function start() public onlyGameOpen {
@@ -74,6 +82,7 @@ contract CipherBomb is Ownable {
         remainingWires = numberOfPlayers;
         turnCurrentPlayer = players[0];
         giveRoles();
+        emit GameStart();
     }
 
     function join() public onlyGameOpen {
@@ -180,15 +189,36 @@ contract CipherBomb is Ownable {
         gameRoleDealNeeded = false;
     }
 
-    function getMyRole(address player) public view onlyGameRunning onlyPlayer(player) returns (bool) {
-        bool role = TFHE.decrypt(roles[player]);
-        return role;
+    function getRole(
+        bytes32 publicKey,
+        bytes calldata signature
+    )
+        public
+        view
+        onlyGameRunning
+        onlyPlayer(msg.sender)
+        onlySignedPublicKey(publicKey, signature)
+        returns (bytes memory)
+    {
+        address player = msg.sender;
+        return TFHE.reencrypt(roles[player], publicKey);
     }
 
-    function getMyCards(address player) public view onlyGameRunning onlyPlayer(player) returns (uint[3] memory) {
-        uint wires = TFHE.decrypt(cards[player].wires);
-        uint bomb = TFHE.decrypt(cards[player].bomb);
-        uint neutrals = TFHE.decrypt(cards[player].neutrals);
+    function getCards(
+        bytes32 publicKey,
+        bytes calldata signature
+    )
+        public
+        view
+        onlyGameRunning
+        onlyPlayer(msg.sender)
+        onlySignedPublicKey(publicKey, signature)
+        returns (bytes[3] memory)
+    {
+        address player = msg.sender;
+        bytes memory wires = TFHE.reencrypt(cards[player].wires, publicKey);
+        bytes memory bomb = TFHE.reencrypt(cards[player].bomb, publicKey);
+        bytes memory neutrals = TFHE.reencrypt(cards[player].neutrals, publicKey);
         return [wires, bomb, neutrals];
     }
 
@@ -212,21 +242,23 @@ contract CipherBomb is Ownable {
             TFHE.sub(cards[player].neutrals, 1)
         );
 
-        euint8 eCardType = TFHE.asEuint8(TYPE_NEUTRAL);
-        eCardType = TFHE.cmux(cardIsWire, TFHE.asEuint8(TYPE_WIRE), eCardType);
-        eCardType = TFHE.cmux(cardIsBomb, TFHE.asEuint8(TYPE_BOMB), eCardType);
+        euint8 eCardType = TFHE.asEuint8(uint8(CardType.NEUTRAL));
+        eCardType = TFHE.cmux(cardIsWire, TFHE.asEuint8(uint8(CardType.WIRE)), eCardType);
+        eCardType = TFHE.cmux(cardIsBomb, TFHE.asEuint8(uint8(CardType.BOMB)), eCardType);
 
         turnMove++;
 
-        uint cardType = TFHE.decrypt(eCardType);
-        if (cardType == TYPE_BOMB) {
+        uint8 cardType = TFHE.decrypt(eCardType);
+        emit CardPicked(cardType);
+
+        if (cardType == uint8(CardType.BOMB)) {
             emit BombFound();
             emit BadGuysWin();
             endGame();
             return;
         }
 
-        if (cardType == TYPE_WIRE) {
+        if (cardType == uint8(CardType.WIRE)) {
             emit WireFound();
             remainingWires--;
             if (remainingWires == 0) {
@@ -243,6 +275,7 @@ contract CipherBomb is Ownable {
                 endGame();
                 return;
             }
+            emit Turn(turnIndex);
             turnMove = 0;
             turnDealNeeded = true;
         }
