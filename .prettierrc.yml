@@ -16,6 +16,7 @@ overrides:
       tabWidth: 4
   - files: "*.ts"
     options:
+      singleQuote: true
       importOrder: ["<THIRD_PARTY_MODULES>", "^[./]"]
       importOrderParserPlugins: ["typescript"]
       importOrderSeparation: true

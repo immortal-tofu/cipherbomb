@@ -34,6 +34,7 @@ contract CipherBomb is Ownable, EIP712WithModifier {
     euint8[6] wirePositions;
     euint8 bombPosition;
 
+    mapping(address => string) public name;
     mapping(address => ebool) roles;
     mapping(address => Cards) cards;
 
@@ -41,24 +42,28 @@ contract CipherBomb is Ownable, EIP712WithModifier {
         euint8 bomb;
         euint8 wires;
         euint8 neutrals;
+        euint8 total;
     }
+
+    event PlayerJoined(address player);
+    event PlayerLeft(address player);
+    event PlayerKicked(address player);
+    event PlayerNameChanged(address player, string name);
 
     event GameOpen();
     event GameStart();
     event Turn(uint8 index);
     event CardPicked(uint8 cardType);
 
-    event BombFound();
-    event WireFound();
-
     event GoodGuysWin();
-    event BadGuysWin();
+    event BadGuysWin(string reason);
 
+    event GoodDeal();
     event FalseDeal();
 
     constructor() EIP712WithModifier("Authorization token", "1") {
         gameRunning = false;
-        gameOpen = false;
+        open();
     }
 
     function open() public {
@@ -70,7 +75,7 @@ contract CipherBomb is Ownable, EIP712WithModifier {
         gameRoleDealNeeded = true;
         delete players;
         numberOfPlayers = 0;
-        addPlayer(msg.sender);
+        addPlayer(owner());
 
         emit GameOpen();
     }
@@ -88,11 +93,41 @@ contract CipherBomb is Ownable, EIP712WithModifier {
     function join() public onlyGameOpen {
         require(numberOfPlayers < MAX_PLAYERS, "The game has enough players (8)");
         addPlayer(msg.sender);
+        emit PlayerJoined(msg.sender);
     }
 
     function addPlayer(address player) internal onlyNewPlayer(player) {
-        players[numberOfPlayers] = msg.sender;
+        players[numberOfPlayers] = player;
         numberOfPlayers++;
+    }
+
+    function leave() public onlyGameOpen onlyOwner {
+        removePlayer(msg.sender);
+        emit PlayerLeft(msg.sender);
+    }
+
+    function kick(address player) public onlyGameOpen onlyOwner {
+        removePlayer(player);
+        emit PlayerKicked(player);
+    }
+
+    function removePlayer(address player) internal onlyPlayer(player) {
+        bool found = false;
+        for (uint i = 0; i < players.length; i += 1) {
+            if (players[i] == player) {
+                delete players[i];
+                players[i] = players[i + 1];
+                found = true;
+            } else if (found) {
+                players[i] = players[i + 1];
+            }
+        }
+        numberOfPlayers--;
+    }
+
+    function setName(string calldata playername) public {
+        name[msg.sender] = playername;
+        emit PlayerNameChanged(msg.sender, playername);
     }
 
     function dealCards(uint8 positionsToGenerate) internal returns (euint8[] memory) {
@@ -160,12 +195,15 @@ contract CipherBomb is Ownable, EIP712WithModifier {
             }
             euint8 bomb = TFHE.asEuint8(TFHE.eq(bombPosition, i));
             euint8 neutrals = TFHE.asEuint8(turnCardLimit()) - (wires + bomb);
-            cards[players[i]] = Cards(bomb, wires, neutrals);
+            euint8 total = bomb + wires + neutrals;
+            cards[players[i]] = Cards(bomb, wires, neutrals, total);
             dealIsCorrect = TFHE.and(dealIsCorrect, TFHE.le(wires + bomb, turnCardLimit()));
         }
         turnDealNeeded = !TFHE.decrypt(dealIsCorrect);
         if (turnDealNeeded) {
             emit FalseDeal();
+        } else {
+            emit GoodDeal();
         }
     }
 
@@ -180,9 +218,9 @@ contract CipherBomb is Ownable, EIP712WithModifier {
             }
         }
         for (uint8 i; i < numberOfPlayers; i++) {
-            ebool role = TFHE.asEbool(true); // Nice guy
+            ebool role; // 1 = Nice guy / 0 = Bad guy
             for (uint8 j; j < 2; j++) {
-                role = TFHE.and(role, TFHE.ne(positions[j], i));
+                role = TFHE.ne(positions[j], i); // If equal, role is bad guy (so = 0)
             }
             roles[players[i]] = role;
         }
@@ -204,7 +242,18 @@ contract CipherBomb is Ownable, EIP712WithModifier {
         return TFHE.reencrypt(roles[player], publicKey);
     }
 
-    function getCards(
+    function getCards() public view onlyGameRunning returns (uint8[] memory) {
+        uint8[] memory tableCards = new uint8[](numberOfPlayers);
+        for (uint8 i = 0; i < numberOfPlayers; i++) {
+            address player = players[i];
+            if (TFHE.isInitialized(cards[player].total)) {
+                tableCards[i] = TFHE.decrypt(cards[player].total);
+            }
+        }
+        return tableCards;
+    }
+
+    function getMyCards(
         bytes32 publicKey,
         bytes calldata signature
     )
@@ -224,13 +273,17 @@ contract CipherBomb is Ownable, EIP712WithModifier {
 
     function endGame() internal {
         gameRunning = false;
-        gameOpen = false;
+        open();
     }
 
     function takeCard(address player) public onlyGameRunning onlyTurnRunning onlyCurrentPlayer(msg.sender) {
-        euint8 totalCards = cards[player].wires + cards[player].bomb + cards[player].neutrals;
+        require(TFHE.decrypt(TFHE.gt(cards[player].total, 0)));
         euint8 cardToTake = TFHE.shr(TFHE.randEuint8(), 5); // 3 bits of randomness
-        euint8 correctedCard = TFHE.cmux(TFHE.lt(cardToTake, totalCards), cardToTake, cardToTake - totalCards);
+        euint8 correctedCard = TFHE.cmux(
+            TFHE.lt(cardToTake, cards[player].total),
+            cardToTake,
+            cardToTake - cards[player].total
+        );
         ebool cardIsWire = TFHE.and(TFHE.gt(cards[player].wires, 0), TFHE.lt(correctedCard, cards[player].wires));
         ebool cardIsBomb = TFHE.and(TFHE.eq(cards[player].bomb, 1), TFHE.eq(correctedCard, cards[player].wires));
 
@@ -241,6 +294,7 @@ contract CipherBomb is Ownable, EIP712WithModifier {
             cards[player].neutrals,
             TFHE.sub(cards[player].neutrals, 1)
         );
+        cards[player].total = TFHE.sub(cards[player].total, 1);
 
         euint8 eCardType = TFHE.asEuint8(uint8(CardType.NEUTRAL));
         eCardType = TFHE.cmux(cardIsWire, TFHE.asEuint8(uint8(CardType.WIRE)), eCardType);
@@ -249,17 +303,14 @@ contract CipherBomb is Ownable, EIP712WithModifier {
         turnMove++;
 
         uint8 cardType = TFHE.decrypt(eCardType);
-        emit CardPicked(cardType);
 
         if (cardType == uint8(CardType.BOMB)) {
-            emit BombFound();
-            emit BadGuysWin();
+            emit BadGuysWin("bomb");
             endGame();
             return;
         }
 
         if (cardType == uint8(CardType.WIRE)) {
-            emit WireFound();
             remainingWires--;
             if (remainingWires == 0) {
                 emit GoodGuysWin();
@@ -271,7 +322,7 @@ contract CipherBomb is Ownable, EIP712WithModifier {
         if (turnMove == numberOfPlayers) {
             turnIndex++;
             if (turnIndex == 4) {
-                emit BadGuysWin();
+                emit BadGuysWin("cards");
                 endGame();
                 return;
             }
@@ -280,6 +331,7 @@ contract CipherBomb is Ownable, EIP712WithModifier {
             turnDealNeeded = true;
         }
 
+        emit CardPicked(cardType);
         turnCurrentPlayer = player;
     }
 
