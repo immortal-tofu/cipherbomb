@@ -100,6 +100,8 @@ describe('CipherBomb', function () {
       if (await this.cipherbomb.turnDealNeeded()) {
         await dealCards();
       }
+      // Add delay to avoid stuck transaction after
+      await new Promise((resolve) => setTimeout(resolve, 2000));
     };
     console.log('TURN 1: 5 cards');
 

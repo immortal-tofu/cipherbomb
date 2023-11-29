@@ -42,7 +42,7 @@ contract CipherBomb is Ownable, EIP712WithModifier {
         euint8 bomb;
         euint8 wires;
         euint8 neutrals;
-        euint8 total;
+        uint8 total;
     }
 
     event PlayerJoined(address player);
@@ -195,7 +195,7 @@ contract CipherBomb is Ownable, EIP712WithModifier {
             }
             euint8 bomb = TFHE.asEuint8(TFHE.eq(bombPosition, i));
             euint8 neutrals = TFHE.asEuint8(turnCardLimit()) - (wires + bomb);
-            euint8 total = bomb + wires + neutrals;
+            uint8 total = turnCardLimit();
             cards[players[i]] = Cards(bomb, wires, neutrals, total);
             dealIsCorrect = TFHE.and(dealIsCorrect, TFHE.le(wires + bomb, turnCardLimit()));
         }
@@ -246,9 +246,7 @@ contract CipherBomb is Ownable, EIP712WithModifier {
         uint8[] memory tableCards = new uint8[](numberOfPlayers);
         for (uint8 i = 0; i < numberOfPlayers; i++) {
             address player = players[i];
-            if (TFHE.isInitialized(cards[player].total)) {
-                tableCards[i] = TFHE.decrypt(cards[player].total);
-            }
+            tableCards[i] = cards[player].total;
         }
         return tableCards;
     }
@@ -277,12 +275,12 @@ contract CipherBomb is Ownable, EIP712WithModifier {
     }
 
     function takeCard(address player) public onlyGameRunning onlyTurnRunning onlyCurrentPlayer(msg.sender) {
-        require(TFHE.decrypt(TFHE.gt(cards[player].total, 0)));
+        require(cards[player].total > 0);
         euint8 cardToTake = TFHE.shr(TFHE.randEuint8(), 5); // 3 bits of randomness
         euint8 correctedCard = TFHE.cmux(
             TFHE.lt(cardToTake, cards[player].total),
             cardToTake,
-            cardToTake - cards[player].total
+            TFHE.sub(cardToTake, cards[player].total)
         );
         ebool cardIsWire = TFHE.and(TFHE.gt(cards[player].wires, 0), TFHE.lt(correctedCard, cards[player].wires));
         ebool cardIsBomb = TFHE.and(TFHE.eq(cards[player].bomb, 1), TFHE.eq(correctedCard, cards[player].wires));
@@ -294,7 +292,7 @@ contract CipherBomb is Ownable, EIP712WithModifier {
             cards[player].neutrals,
             TFHE.sub(cards[player].neutrals, 1)
         );
-        cards[player].total = TFHE.sub(cards[player].total, 1);
+        cards[player].total = cards[player].total - 1;
 
         euint8 eCardType = TFHE.asEuint8(uint8(CardType.NEUTRAL));
         eCardType = TFHE.cmux(cardIsWire, TFHE.asEuint8(uint8(CardType.WIRE)), eCardType);
