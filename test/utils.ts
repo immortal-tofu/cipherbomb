@@ -1,7 +1,7 @@
-import { ContractMethodArgs, Typed } from "ethers";
+import { ContractMethodArgs, Typed } from 'ethers';
 
 // import { ethers } from "hardhat";
-import { TypedContractMethod } from "../types/common";
+import { TypedContractMethod } from '../types/common';
 
 export const waitForBlock = (blockNumber: bigint, ethers: any) => {
   return new Promise((resolve, reject) => {
@@ -9,11 +9,11 @@ export const waitForBlock = (blockNumber: bigint, ethers: any) => {
       // console.log(`Block ${currentBlock} reached! Waiting ${blockNumber}...`);
       if (blockNumber <= BigInt(currentBlock)) {
         // console.log(`Block ${currentBlock} reached!`);
-        await ethers.provider.off("block", waitBlock);
+        await ethers.provider.off('block', waitBlock);
         resolve(blockNumber);
       }
     };
-    ethers.provider.on("block", waitBlock).catch((err: any) => {
+    ethers.provider.on('block', waitBlock).catch((err: any) => {
       reject(err);
     });
   });
@@ -24,7 +24,6 @@ export const createTransaction = async <A extends [...{ [I in keyof A]-?: A[I] |
   ...params: A
 ) => {
   const gasLimit = await method.estimateGas(...params);
-  console.log(gasLimit);
   const updatedParams: ContractMethodArgs<A> = [
     ...params,
     { gasLimit: Math.min(10_000_000, Math.round(+gasLimit.toString() * 1.2)) },
