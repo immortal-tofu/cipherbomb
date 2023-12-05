@@ -1,9 +1,9 @@
-import type { FhevmInstance } from "fhevmjs";
+import type { FhevmInstance } from 'fhevmjs';
 
-import { CipherBomb } from "../types";
-import type { Signers } from "./signers";
+import { CipherBomb } from '../types';
+import type { Signers } from './signers';
 
-declare module "mocha" {
+declare module 'mocha' {
   export interface Context {
     signers: Signers;
     contractAddress: string;

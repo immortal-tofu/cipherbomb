@@ -1,9 +1,9 @@
-import { Signer } from "ethers";
-import fhevmjs, { FhevmInstance } from "fhevmjs";
+import { Signer } from 'ethers';
+import fhevmjs, { FhevmInstance } from 'fhevmjs';
 
 // import { ethers as hethers } from "hardhat";
-import type { Signers } from "./signers";
-import { FhevmInstances } from "./types";
+import type { Signers } from './signers';
+import { FhevmInstances } from './types';
 
 let publicKey: string;
 let chainId: number;
@@ -22,7 +22,7 @@ export const createInstances = async (
 
     // Get blockchain public key
     publicKey = await provider.call({
-      to: "0x0000000000000000000000000000000000000044",
+      to: '0x0000000000000000000000000000000000000044',
     });
   }
 

@@ -1,4 +1,4 @@
-import type { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/dist/src/signer-with-address";
+import type { SignerWithAddress } from '@nomicfoundation/hardhat-ethers/dist/src/signer-with-address';
 
 export interface Signers {
   alice: SignerWithAddress;
