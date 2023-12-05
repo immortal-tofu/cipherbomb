@@ -20,6 +20,13 @@ describe('CipherBomb', function () {
   });
 
   it('should start a game', async function () {
+    const getRole = async (name: string) => {
+      const key = name as keyof Signers;
+      const token = this.instances[key].getTokenSignature(this.contractAddress)!;
+      const encryptedRole = await this.cipherbomb.connect(this.signers[key]).getRole(token.publicKey, token.signature);
+      return this.instances[key].decrypt(this.contractAddress, encryptedRole);
+    };
+
     const getCard = async (name: string) => {
       const key = name as keyof Signers;
       const token = this.instances[key].getTokenSignature(this.contractAddress)!;
@@ -27,15 +34,14 @@ describe('CipherBomb', function () {
         .connect(this.signers[key])
         .getMyCards(token.publicKey, token.signature);
       const cards = encryptedCards.map((v) => this.instances[key].decrypt(this.contractAddress, v));
-      const encryptedRole = await this.cipherbomb.connect(this.signers[key]).getRole(token.publicKey, token.signature);
-      const role = this.instances[key].decrypt(this.contractAddress, encryptedRole);
-      return { cards, role };
+      return cards;
     };
 
     const getPlayers = async () => {
       const players: { name: string; wires: number }[] = [];
       const p = ['alice', 'bob', 'carol', 'dave'].map(async (name) => {
-        const { cards, role } = await getCard(name as keyof Signers);
+        const cards = await getCard(name as keyof Signers);
+        const role = await getRole(name as keyof Signers);
         console.log(`${name} (${role ? 'Good guy' : 'Bad guy'}) cards:`, displayCards(cards));
 
         if (cards[1]) return;
@@ -84,11 +90,17 @@ describe('CipherBomb', function () {
     expect(await this.cipherbomb.numberOfPlayers()).to.eq(4);
 
     const startTx = await createTransaction(this.cipherbomb.start);
-    await startTx.wait();
+    const r = await startTx.wait();
+    console.log(r);
 
     expect(await this.cipherbomb.gameOpen()).to.be.false;
     expect(await this.cipherbomb.gameRunning()).to.be.true;
     expect(await this.cipherbomb.turnCurrentPlayer()).to.be.eq(this.signers.alice.address);
+
+    console.log('alice', await getRole('alice'));
+    console.log('bob', await getRole('bob'));
+    console.log('carol', await getRole('carol'));
+    console.log('dave', await getRole('dave'));
 
     const dealCards = async () => {
       const dealTx = await createTransaction(this.cipherbomb.deal);
@@ -121,7 +133,7 @@ describe('CipherBomb', function () {
     const turn2Player = await takeCards('alice', players, 4);
 
     const newAliceCards = await getCard(turn2Player as keyof Signers);
-    expect(newAliceCards.cards[0] + newAliceCards.cards[1] + newAliceCards.cards[2]).to.be.eq(3);
+    expect(newAliceCards[0] + newAliceCards[1] + newAliceCards[2]).to.be.eq(3);
 
     // TURN 2: 4 cards
     console.log('TURN 2: 4 cards');
@@ -131,12 +143,12 @@ describe('CipherBomb', function () {
     const turn2Players = await getPlayers();
 
     const turnCards = await getCard('alice');
-    expect(turnCards.cards[0] + turnCards.cards[1] + turnCards.cards[2]).to.be.eq(4);
+    expect(turnCards[0] + turnCards[1] + turnCards[2]).to.be.eq(4);
 
     const turn3Player = await takeCards(turn2Player, turn2Players, 4);
 
     const turn2Cards = await getCard(turn3Player);
-    expect(turn2Cards.cards[0] + turn2Cards.cards[1] + turn2Cards.cards[2]).to.be.eq(2);
+    expect(turn2Cards[0] + turn2Cards[1] + turn2Cards[2]).to.be.eq(2);
 
     // TURN 3: 3 cards
     console.log('TURN 3: 3 cards');
@@ -148,7 +160,7 @@ describe('CipherBomb', function () {
     const turn4Player = await takeCards(turn3Player, turn3Players, 4);
 
     const turn3Cards = await getCard(turn4Player);
-    expect(turn3Cards.cards[0] + turn3Cards.cards[1] + turn3Cards.cards[2]).to.be.eq(1);
+    expect(turn3Cards[0] + turn3Cards[1] + turn3Cards[2]).to.be.eq(1);
 
     // TURN 4: 2 cards
     console.log('TURN 4: 2 cards');

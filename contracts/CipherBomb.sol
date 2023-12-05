@@ -130,49 +130,39 @@ contract CipherBomb is Ownable, EIP712WithModifier {
         emit PlayerNameChanged(msg.sender, playername);
     }
 
-    function dealCards(uint8 positionsToGenerate) internal returns (euint8[] memory) {
+    function getRangeBits(uint8 range) internal pure returns (uint8) {
+        uint8 rangeBits = 1;
+        if (range > 3) {
+            rangeBits = 3;
+        } else if (range > 1) {
+            rangeBits = 2;
+        }
+        return rangeBits;
+    }
+
+    function generateNumber(euint8 random8, uint8 range) internal returns (euint8) {
+        return TFHE.cmux(TFHE.lt(random8, range), random8, TFHE.sub(random8, range));
+    }
+
+    function dealCards(uint8 positionsToGenerate, uint8 range) internal returns (euint8[] memory) {
+        require(range < 7);
         euint8[] memory positions = new euint8[](positionsToGenerate);
-        euint16 random16;
-        euint8 random8;
-        if (positionsToGenerate >= 3) {
-            random16 = TFHE.randEuint16();
-            if (positionsToGenerate >= 6) {
-                random8 = TFHE.randEuint8();
-            }
-        } else {
-            random8 = TFHE.randEuint8();
-        }
 
-        for (uint i; i < positionsToGenerate; i++) {
-            euint8 randBits;
-            if (positionsToGenerate >= 3) {
-                if (i >= 6) {
-                    uint8 shift8 = uint8(3 * (i - 5));
-                    randBits = TFHE.shr(random8, shift8);
-                } else {
-                    uint16 shift16 = uint16(3 * (i + 1));
-                    randBits = TFHE.asEuint8(TFHE.shr(random16, shift16));
-                }
-            } else {
-                uint8 shift8 = uint8(3 * (i + 1));
-                randBits = TFHE.shr(random8, shift8);
-            }
-            uint8 mask = 7;
-            euint8 player = TFHE.and(randBits, TFHE.asEuint8(mask));
-            euint8 correctedPlayer = TFHE.cmux(
-                TFHE.lt(player, numberOfPlayers),
-                player,
-                TFHE.sub(player, numberOfPlayers)
-            );
-            positions[i] = correctedPlayer;
-        }
+        euint32 random32 = TFHE.randEuint32();
+        uint8 rangeBits = getRangeBits(range); // number of bits needed at most
 
+        for (uint8 i; i < positionsToGenerate; i++) {
+            euint8 random8 = TFHE.asEuint8(TFHE.shr(random32, i * rangeBits));
+            uint256 mask = 2 ** rangeBits - 1;
+            random8 = TFHE.and(random8, TFHE.asEuint8(mask));
+            positions[i] = generateNumber(random8, range);
+        }
         return positions;
     }
 
     function deal() public onlyGameRunning onlyTurnDealNeeded {
         require(turnDealNeeded, "There is no need to deal cards");
-        euint8[] memory positions = dealCards(uint8(remainingWires + 1));
+        euint8[] memory positions = dealCards(uint8(remainingWires + 1), numberOfPlayers);
         for (uint i; i < positions.length; i++) {
             if (i == positions.length - 1) {
                 bombPosition = positions[i];
@@ -209,7 +199,7 @@ contract CipherBomb is Ownable, EIP712WithModifier {
 
     function giveRoles() internal onlyRoleDealNeeded {
         uint8 badGuys = 2;
-        euint8[] memory positions = dealCards(badGuys);
+        euint8[] memory positions = dealCards(badGuys, numberOfPlayers == 4 ? numberOfPlayers : numberOfPlayers - 1);
         if (numberOfPlayers > 4) {
             bool equal = TFHE.decrypt(TFHE.eq(positions[0], positions[1]));
             if (equal) {
@@ -218,11 +208,8 @@ contract CipherBomb is Ownable, EIP712WithModifier {
             }
         }
         for (uint8 i; i < numberOfPlayers; i++) {
-            ebool role; // 1 = Nice guy / 0 = Bad guy
-            for (uint8 j; j < 2; j++) {
-                role = TFHE.ne(positions[j], i); // If equal, role is bad guy (so = 0)
-            }
-            roles[players[i]] = role;
+            ebool role = TFHE.and(TFHE.ne(positions[0], i), TFHE.ne(positions[1], i)); // If equal, role is bad guy (so = 0)
+            roles[players[i]] = role; // 1 = Nice guy / 0 = Bad guy
         }
         gameRoleDealNeeded = false;
     }
