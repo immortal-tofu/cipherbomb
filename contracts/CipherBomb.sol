@@ -264,12 +264,8 @@ contract CipherBomb is Ownable, EIP712WithModifier {
     function takeCard(address player) public onlyGameRunning onlyTurnRunning onlyCurrentPlayer(msg.sender) {
         require(cards[player].total > 0);
         require(player != msg.sender);
-        euint8 cardToTake = TFHE.shr(TFHE.randEuint8(), 5); // 3 bits of randomness
-        euint8 correctedCard = TFHE.cmux(
-            TFHE.lt(cardToTake, cards[player].total),
-            cardToTake,
-            TFHE.sub(cardToTake, cards[player].total)
-        );
+        euint8 random8 = TFHE.shr(TFHE.randEuint8(), 5);
+        euint8 correctedCard = generateNumber(random8, cards[player].total);
         ebool cardIsWire = TFHE.and(TFHE.gt(cards[player].wires, 0), TFHE.lt(correctedCard, cards[player].wires));
         ebool cardIsBomb = TFHE.and(TFHE.eq(cards[player].bomb, 1), TFHE.eq(correctedCard, cards[player].wires));
 

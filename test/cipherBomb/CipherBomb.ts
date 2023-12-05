@@ -64,7 +64,8 @@ describe('CipherBomb', function () {
     const takeCards = async (firstPlayer: string, players: { name: string; wires: number }[], move: number) => {
       let currentPlayer = firstPlayer;
       let nextPlayer = players[0].name !== currentPlayer ? players[0].name : players[1].name;
-      for (let i = 0; i < move; i += 1) {
+      await new Array(move).fill(null).reduce(async (p) => {
+        await p;
         console.log(`${currentPlayer} takes a card from ${nextPlayer}`);
         const takeCardTx = await createTransaction(
           this.cipherbomb.connect(this.signers[currentPlayer as keyof Signers]).takeCard,
@@ -73,7 +74,8 @@ describe('CipherBomb', function () {
         await takeCardTx.wait();
         currentPlayer = nextPlayer;
         nextPlayer = players[0].name !== currentPlayer ? players[0].name : players[1].name;
-      }
+      }, Promise.resolve());
+
       return currentPlayer;
     };
 
@@ -96,11 +98,6 @@ describe('CipherBomb', function () {
     expect(await this.cipherbomb.gameOpen()).to.be.false;
     expect(await this.cipherbomb.gameRunning()).to.be.true;
     expect(await this.cipherbomb.turnCurrentPlayer()).to.be.eq(this.signers.alice.address);
-
-    console.log('alice', await getRole('alice'));
-    console.log('bob', await getRole('bob'));
-    console.log('carol', await getRole('carol'));
-    console.log('dave', await getRole('dave'));
 
     const dealCards = async () => {
       const dealTx = await createTransaction(this.cipherbomb.deal);
