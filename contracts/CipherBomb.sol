@@ -61,7 +61,7 @@ contract CipherBomb is Ownable, EIP712WithModifier {
     event GoodDeal();
     event FalseDeal();
 
-    constructor() EIP712WithModifier("Authorization token", "1") {
+    constructor() Ownable() EIP712WithModifier("Authorization token", "1") {
         gameRunning = false;
         open();
     }
