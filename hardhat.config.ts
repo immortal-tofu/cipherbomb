@@ -43,6 +43,7 @@ function getChainConfig(chain: keyof typeof chainIds): NetworkUserConfig {
   switch (chain) {
     case 'local':
       jsonRpcUrl = 'http://localhost:8545/';
+      // jsonRpcUrl = 'http://52.47.200.198:8545/';
       break;
     case 'zama':
       jsonRpcUrl = 'https://devnet.zama.ai/';

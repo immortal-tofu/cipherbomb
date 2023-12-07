@@ -1,4 +1,4 @@
-import { Signer } from 'ethers';
+import { AbiCoder, Signer } from 'ethers';
 import fhevmjs, { FhevmInstance } from 'fhevmjs';
 
 // import { ethers as hethers } from "hardhat";
@@ -21,9 +21,12 @@ export const createInstances = async (
     chainId = +network.chainId.toString(); // Need to be a number
 
     // Get blockchain public key
-    publicKey = await provider.call({
-      to: '0x0000000000000000000000000000000000000044',
+    const ret = await provider.call({
+      to: '0x000000000000000000000000000000000000005d',
+      data: '0xd9d47bb001',
     });
+    const decoded = AbiCoder.defaultAbiCoder().decode(['bytes'], ret);
+    publicKey = decoded[0];
   }
 
   // Create instance

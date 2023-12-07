@@ -5,6 +5,8 @@ export interface Signers {
   bob: SignerWithAddress;
   carol: SignerWithAddress;
   dave: SignerWithAddress;
+  eve: SignerWithAddress;
+  oscar: SignerWithAddress;
 }
 
 export const getSigners = async (ethers: any): Promise<Signers> => {
@@ -14,5 +16,7 @@ export const getSigners = async (ethers: any): Promise<Signers> => {
     bob: signers[1],
     carol: signers[2],
     dave: signers[3],
+    eve: signers[4],
+    oscar: signers[5],
   };
 };

@@ -82,12 +82,14 @@ contract CipherBomb is Ownable, EIP712WithModifier {
 
     function start() public onlyGameOpen {
         require(numberOfPlayers >= MIN_PLAYERS, "Not enough player to start");
-        gameOpen = false;
-        gameRunning = true;
-        remainingWires = numberOfPlayers;
-        turnCurrentPlayer = players[0];
-        giveRoles();
-        emit GameStart();
+        bool roleDistributed = giveRoles();
+        if (roleDistributed) {
+            remainingWires = numberOfPlayers;
+            turnCurrentPlayer = players[0];
+            gameOpen = false;
+            gameRunning = true;
+            emit GameStart();
+        }
     }
 
     function join() public onlyGameOpen {
@@ -197,14 +199,13 @@ contract CipherBomb is Ownable, EIP712WithModifier {
         }
     }
 
-    function giveRoles() internal onlyRoleDealNeeded {
+    function giveRoles() internal onlyRoleDealNeeded returns (bool) {
         uint8 badGuys = 2;
         euint8[] memory positions = dealCards(badGuys, numberOfPlayers == 4 ? numberOfPlayers : numberOfPlayers - 1);
         if (numberOfPlayers > 4) {
-            bool equal = TFHE.decrypt(TFHE.eq(positions[0], positions[1]));
-            if (equal) {
-                giveRoles();
-                return;
+            bool isCorrect = TFHE.decrypt(TFHE.ne(positions[0], positions[1]));
+            if (!isCorrect) {
+                return false;
             }
         }
         for (uint8 i; i < numberOfPlayers; i++) {
@@ -212,6 +213,7 @@ contract CipherBomb is Ownable, EIP712WithModifier {
             roles[players[i]] = role; // 1 = Nice guy / 0 = Bad guy
         }
         gameRoleDealNeeded = false;
+        return true;
     }
 
     function getRole(

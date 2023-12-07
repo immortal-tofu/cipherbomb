@@ -26,7 +26,7 @@
     "dotenv": "^16.0.3",
     "eslint": "^8.28.0",
     "eslint-config-prettier": "^8.5.0",
-    "ethers": "^6.4.0",
+    "ethers": "^6.9.0",
     "fhevm": "^0.2.2",
     "fhevmjs": "^0.1.3",
     "fs-extra": "^10.1.0",
@@ -84,11 +84,13 @@
     "fhevm:start": "docker run -i -p 8545:8545 -p 8546:8546 --rm --name fhevm ghcr.io/zama-ai/evmos-dev-node:v0.1.10",
     "fhevm:stop": "docker rm -f fhevm",
     "fhevm:restart": "fhevm:stop && fhevm:start",
-    "fhevm:faucet": "npm run fhevm:faucet:alice && sleep 5 && npm run fhevm:faucet:bob && sleep 5 && npm run fhevm:faucet:carol && sleep 5 && npm run fhevm:faucet:dave",
+    "fhevm:faucet": "npm run fhevm:faucet:alice && sleep 5 && npm run fhevm:faucet:bob && sleep 5 && npm run fhevm:faucet:carol && sleep 5 && npm run fhevm:faucet:dave && sleep 5 && npm run fhevm:faucet:eve && sleep 5 && npm run fhevm:faucet:oscar",
     "fhevm:faucet:alice": "docker exec -i fhevm faucet $(npx hardhat task:getEthereumAddressAlice)",
     "fhevm:faucet:bob": "docker exec -i fhevm faucet $(npx hardhat task:getEthereumAddressBob)",
     "fhevm:faucet:carol": "docker exec -i fhevm faucet $(npx hardhat task:getEthereumAddressCarol)",
-    "fhevm:faucet:dave": "docker exec -i fhevm faucet $(npx hardhat task:getEthereumAddressDave)"
+    "fhevm:faucet:dave": "docker exec -i fhevm faucet $(npx hardhat task:getEthereumAddressDave)",
+    "fhevm:faucet:eve": "docker exec -i fhevm faucet $(npx hardhat task:getEthereumAddressEve)",
+    "fhevm:faucet:oscar": "docker exec -i fhevm faucet $(npx hardhat task:getEthereumAddressOscar)"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^4.9.3"
