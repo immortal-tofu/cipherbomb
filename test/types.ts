@@ -1,5 +1,6 @@
 import type { FhevmInstance } from "fhevmjs";
 
+import { Cipherbomb } from "../types";
 import type { Signers } from "./signers";
 
 declare module "mocha" {
@@ -7,6 +8,7 @@ declare module "mocha" {
     signers: Signers;
     contractAddress: string;
     instances: FhevmInstances;
+    cipherbomb: Cipherbomb;
   }
 }
 
