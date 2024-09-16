@@ -25,15 +25,17 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
         bool open;
         bool dealNeeded;
         address[] players;
-        ebool[] roles;
+        ebool[8] roles;
         uint8 roleMask;
+        euint8[8] cards;
+        uint64 cardsMask;
         uint8 turn;
         address turnCurrentPlayer;
         uint8 move;
         uint8 remainingWires;
-        euint8[] wirePositions;
         euint8 bombPosition;
-        euint64 randomness;
+        euint64 roleRandomness;
+        euint64 cardsRandomness;
     }
 
     Game[] public games;
@@ -71,16 +73,6 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
         game.turnCurrentPlayer = msg.sender;
         game.move = 0;
         game.remainingWires = 0;
-        game.wirePositions = [
-            euint8.wrap(0),
-            euint8.wrap(0),
-            euint8.wrap(0),
-            euint8.wrap(0),
-            euint8.wrap(0),
-            euint8.wrap(0),
-            euint8.wrap(0),
-            euint8.wrap(0)
-        ];
         game.bombPosition = euint8.wrap(0);
 
         uint gameId = games.length - 1;
@@ -147,7 +139,7 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
     function start(uint gameId) public onlyGameOpen(gameId) {
         Game storage game = games[gameId];
         require(game.players.length >= MIN_PLAYERS, "Not enough player to start");
-        giveRoles(gameId, uint8(Math.max(game.players.length, 5)));
+        dealRoles(gameId, uint8(Math.max(game.players.length, 5)));
 
         game.remainingWires = uint8(game.players.length);
         game.turnCurrentPlayer = game.players[0];
@@ -156,41 +148,39 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
         emit GameStart(gameId);
     }
 
-    function giveRoles(uint gameId, uint8 numberOfPlayers) internal returns (euint8) {
+    function dealRoles(uint gameId, uint8 numberOfPlayers) internal returns (euint8) {
         Game storage game = games[gameId];
 
         euint64 random = TFHE.randEuint64();
         // euint64 random = TFHE.asEuint64(0);
         TFHE.allow(random, address(this));
-        game.randomness = random;
+        game.roleRandomness = random;
 
-        euint8 encryptedRole = _getMaskRole(numberOfPlayers, random);
-        TFHE.allow(encryptedRole, address(this));
+        euint8 encryptedRoles = _dealRoles(numberOfPlayers, random);
+        TFHE.allow(encryptedRoles, address(this));
 
-        uint256[] memory cts = new uint256[](2);
-        cts[0] = Gateway.toUint256(encryptedRole);
-        cts[1] = Gateway.toUint256(random);
+        uint256[] memory cts = new uint256[](1);
+        cts[0] = Gateway.toUint256(encryptedRoles);
         uint256 requestId = Gateway.requestDecryption(cts, this.setRoles.selector, 0, block.timestamp + 1000, false);
         addParamsUint256(requestId, gameId);
     }
 
-    function setRoles(uint256 requestId, uint8 roles, uint64 rand) public onlyGateway returns (uint8) {
+    function setRoles(uint256 requestId, uint8 roles) public onlyGateway {
         uint256[] memory params = getParamsUint256(requestId);
         Game storage game = games[params[0]];
-        console.log("decrypted", roles, "rand", rand);
         game.roleMask = roles;
     }
 
     function takeRole(uint256 gameId, uint8 index) public {
         Game storage game = games[gameId];
-        euint8 role = _getRole(game.roleMask, index, game.randomness);
+        euint8 role = _getRole(game.roleMask, index, game.roleRandomness);
         ebool boolRole;
         if (game.players.length <= 6) {
             boolRole = TFHE.le(role, 2);
         } else if (game.players.length <= 8) {
             boolRole = TFHE.le(role, 4);
         }
-        game.roles.push(boolRole);
+        game.roles[index] = boolRole;
         TFHE.allow(boolRole, address(this));
         TFHE.allow(boolRole, game.players[index]);
     }
@@ -198,6 +188,52 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
     function getRole(uint gameId, uint index) public view returns (ebool) {
         Game storage game = games[gameId];
         return game.roles[index];
+    }
+
+    function deal(uint gameId) public {
+        Game storage game = games[gameId];
+        game.cardsRandomness = TFHE.randEuint64();
+        TFHE.allow(game.cardsRandomness, address(this));
+        euint64 encryptedCards = _dealCards(uint8(game.players.length), 5 - game.turn, game.cardsRandomness);
+        TFHE.allow(encryptedCards, address(this));
+
+        uint256[] memory cts = new uint256[](1);
+        cts[0] = Gateway.toUint256(encryptedCards);
+        uint256 requestId = Gateway.requestDecryption(cts, this.setCards.selector, 0, block.timestamp + 1000, false);
+        addParamsUint256(requestId, gameId);
+        console.log("letsgo");
+    }
+
+    function setCards(uint256 requestId, uint64 cards) public onlyGateway {
+        uint256[] memory params = getParamsUint256(requestId);
+        Game storage game = games[params[0]];
+        game.cardsMask = cards;
+    }
+
+    function takeCards(uint256 gameId, uint8 index) public {
+        Game storage game = games[gameId];
+
+        require(game.cardsMask != 0, "Cards mask not set");
+
+        uint8 cardDistributed = 5 - game.turn;
+        euint64 cardDistribution = _getCards(game.cardsMask, index, cardDistributed, game.cardsRandomness);
+        ebool hasBomb = TFHE.ge(cardDistribution, uint64(1 << ((cardDistributed * game.players.length) - 1)));
+        euint8 cards = TFHE.select(hasBomb, TFHE.asEuint8(128), TFHE.asEuint8(0));
+        euint16 wires = TFHE.asEuint16(63488); // 1111100000000000
+        euint8 first8 = TFHE.asEuint8(cardDistribution); // wires are on right
+        for (uint256 i; i < game.remainingWires; i += 1) {
+            ebool hasWire = TFHE.ne(TFHE.and(first8, TFHE.asEuint8(1 << i)), 0);
+            wires = TFHE.rotl(wires, TFHE.asEuint8(hasWire));
+        }
+        cards = TFHE.or(cards, TFHE.asEuint8(wires));
+        game.cards[index] = cards;
+        TFHE.allow(cards, address(this));
+        TFHE.allow(cards, game.players[index]);
+    }
+
+    function getCards(uint gameId, uint index) public view returns (euint8) {
+        Game storage game = games[gameId];
+        return game.cards[index];
     }
 
     modifier onlyJoinable(uint gameId) {
