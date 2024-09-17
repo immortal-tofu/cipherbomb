@@ -157,7 +157,7 @@ describe("Cipherbomb", function () {
     console.log("dave", daveRole ? "bad guy" : "good guy", daveRole.toString(2));
   });
 
-  it.only("should deal cards", async function () {
+  it("should deal cards", async function () {
     const transaction = await this.cipherbomb.createGame();
     await transaction.wait();
 
@@ -180,7 +180,6 @@ describe("Cipherbomb", function () {
         { Reencrypt: eip712.types.Reencrypt },
         eip712.message,
       );
-      console.log("start reencrypt");
       return await this.instances[user].reencrypt(
         handle,
         privateKey,
@@ -194,7 +193,7 @@ describe("Cipherbomb", function () {
     const deal = await this.cipherbomb.deal(0);
     await deal.wait();
     await awaitAllDecryptionResults();
-    console.log("dealed");
+
     const txCards = [
       await this.cipherbomb.takeCards(0, 0),
       await this.cipherbomb.takeCards(0, 1),
@@ -204,19 +203,27 @@ describe("Cipherbomb", function () {
     await Promise.all(txCards.map((tx) => tx.wait()));
 
     const encryptedCardsAlice = await this.cipherbomb.getCards(0, 0);
-    const aliceCards = await reencrypt("alice", encryptedCardsAlice);
-    console.log("alice", aliceCards, aliceCards.toString(2));
+    const aliceBomb = await reencrypt("alice", encryptedCardsAlice[0]);
+    const aliceWires = await reencrypt("alice", encryptedCardsAlice[1]);
+    const aliceNulls = await reencrypt("alice", encryptedCardsAlice[2]);
+    console.log("alice", `${aliceBomb} bomb`, `${aliceWires} wires`, `${aliceNulls} null`);
 
     const encryptedCardsBob = await this.cipherbomb.getCards(0, 1);
-    const bobCards = await reencrypt("bob", encryptedCardsBob);
-    console.log("bob", bobCards, bobCards.toString(2));
+    const bobBomb = await reencrypt("bob", encryptedCardsBob[0]);
+    const bobWires = await reencrypt("bob", encryptedCardsBob[1]);
+    const bobNulls = await reencrypt("bob", encryptedCardsBob[2]);
+    console.log("bob", `${bobBomb} bomb`, `${bobWires} wires`, `${bobNulls} null`);
 
     const encryptedCardsCarol = await this.cipherbomb.getCards(0, 2);
-    const carolCards = await reencrypt("carol", encryptedCardsCarol);
-    console.log("carol", carolCards, carolCards.toString(2));
+    const carolBomb = await reencrypt("carol", encryptedCardsCarol[0]);
+    const carolWires = await reencrypt("carol", encryptedCardsCarol[1]);
+    const carolNulls = await reencrypt("carol", encryptedCardsCarol[2]);
+    console.log("carol", `${carolBomb} bomb`, `${carolWires} wires`, `${carolNulls} null`);
 
     const encryptedCardsDave = await this.cipherbomb.getCards(0, 3);
-    const daveCards = await reencrypt("dave", encryptedCardsDave);
-    console.log("dave", daveCards, daveCards.toString(2));
+    const daveBomb = await reencrypt("dave", encryptedCardsDave[0]);
+    const daveWires = await reencrypt("dave", encryptedCardsDave[1]);
+    const daveNulls = await reencrypt("dave", encryptedCardsDave[2]);
+    console.log("dave", `${daveBomb} bomb`, `${daveWires} wires`, `${daveNulls} null`);
   });
 });
