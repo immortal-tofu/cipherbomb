@@ -27,22 +27,25 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
         address[] players;
         ebool[8] roles;
         uint8 roleMask;
+        euint4 lastCardPicked;
+        uint8 turn;
+        address turnCurrentPlayer;
+        uint8 turnIndex;
+        euint64 roleRandomness;
+    }
+
+    struct Cards {
+        uint8 remainingWires;
+        uint64 mask;
+        euint64 randomness;
         euint4[8] nullCards;
         euint4[8] wireCards;
         euint4[8] bombCard;
         uint8[8] remainingCards;
-        euint4 lastCardPicked;
-        uint64 cardsMask;
-        uint8 turn;
-        address turnCurrentPlayer;
-        uint8 turnIndex;
-        uint8 remainingWires;
-        euint8 bombPosition;
-        euint64 roleRandomness;
-        euint64 cardsRandomness;
     }
 
     Game[] public games;
+    Cards[] public cards;
 
     mapping(address => string) nicknames;
 
@@ -78,8 +81,9 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
         game.turn = 0;
         game.turnCurrentPlayer = msg.sender;
         game.turnIndex = 0;
-        game.remainingWires = 0;
-        game.bombPosition = euint8.wrap(0);
+
+        Cards storage gameCards = cards.push();
+        gameCards.remainingWires = 0;
 
         uint256 gameId = games.length - 1;
         emit NewGame(gameId);
@@ -144,10 +148,11 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
 
     function start(uint256 gameId) public onlyOpen(gameId) {
         Game storage game = games[gameId];
+        Cards storage gameCards = cards[gameId];
         require(game.players.length >= MIN_PLAYERS, "Not enough player to start");
         dealRoles(gameId, uint8(Math.max(game.players.length, 5)));
 
-        game.remainingWires = uint8(game.players.length);
+        gameCards.remainingWires = uint8(game.players.length);
         game.turnCurrentPlayer = game.players[0];
         game.open = false;
         game.running = true;
@@ -199,10 +204,11 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
 
     function deal(uint256 gameId) public onlyDealNeeded(gameId) {
         Game storage game = games[gameId];
+        Cards storage gameCards = cards[gameId];
         require(game.dealNeeded, "Deal is not needed");
-        game.cardsRandomness = TFHE.randEuint64();
-        TFHE.allow(game.cardsRandomness, address(this));
-        euint64 encryptedCards = _dealCards(uint8(game.players.length), 5 - game.turn, game.cardsRandomness);
+        gameCards.randomness = TFHE.randEuint64();
+        TFHE.allow(gameCards.randomness, address(this));
+        euint64 encryptedCards = _dealCards(uint8(game.players.length), 5 - game.turn, gameCards.randomness);
         TFHE.allow(encryptedCards, address(this));
 
         uint256[] memory cts = new uint256[](1);
@@ -213,18 +219,19 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
         emit CardDealed(gameId, game.turn);
     }
 
-    function setCards(uint256 requestId, uint64 cards) public onlyGateway {
+    function setCards(uint256 requestId, uint64 mask) public onlyGateway {
         uint256[] memory params = getParamsUint256(requestId);
-        Game storage game = games[params[0]];
-        game.cardsMask = cards;
+        Cards storage gameCards = cards[params[0]];
+        gameCards.mask = mask;
     }
 
     function takeCards(uint256 gameId, uint8 playerIndex) public onlyPlayerTurn(gameId) {
         Game storage game = games[gameId];
+        Cards storage gameCards = cards[gameId];
 
-        require(game.cardsMask != 0, "Cards mask not set");
+        require(gameCards.mask != 0, "Cards mask not set");
 
-        euint64 cardDistribution = _getCards(game.cardsMask, playerIndex, game.players.length, game.cardsRandomness);
+        euint64 cardDistribution = _getCards(gameCards.mask, playerIndex, game.players.length, gameCards.randomness);
 
         uint8 cardDistributed = 5 - game.turn;
         euint4 wireCards = TFHE.asEuint4(0);
@@ -232,54 +239,41 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
             TFHE.ge(cardDistribution, uint64(1 << ((cardDistributed * game.players.length) - 1)))
         );
         euint8 first8 = TFHE.asEuint8(cardDistribution); // wires are on right
-        for (uint256 i; i < game.remainingWires; i += 1) {
+        for (uint256 i; i < gameCards.remainingWires; i += 1) {
             ebool hasWire = TFHE.asEbool(TFHE.and(first8, TFHE.asEuint8(1 << i)));
             wireCards = TFHE.add(wireCards, TFHE.asEuint4(hasWire));
         }
         euint4 nullCards = TFHE.sub(TFHE.asEuint4(cardDistributed), TFHE.add(hasBomb, wireCards));
 
-        game.nullCards[playerIndex] = nullCards;
+        gameCards.nullCards[playerIndex] = nullCards;
         TFHE.allow(nullCards, address(this));
         TFHE.allow(nullCards, game.players[playerIndex]);
-        game.bombCard[playerIndex] = hasBomb;
+        gameCards.bombCard[playerIndex] = hasBomb;
         TFHE.allow(hasBomb, address(this));
         TFHE.allow(hasBomb, game.players[playerIndex]);
-        game.wireCards[playerIndex] = wireCards;
+        gameCards.wireCards[playerIndex] = wireCards;
         TFHE.allow(wireCards, address(this));
         TFHE.allow(wireCards, game.players[playerIndex]);
-        game.remainingCards[playerIndex] = cardDistributed;
+        gameCards.remainingCards[playerIndex] = cardDistributed;
     }
 
     function pickCard(uint256 gameId, uint8 playerIndex) public onlyPlayerTurn(gameId) {
         Game storage game = games[gameId];
-        require(game.remainingCards[playerIndex] > 0, "This player has no cards");
-        uint8 remainingCards = game.remainingCards[playerIndex];
+        Cards storage gameCards = cards[gameId];
+        require(gameCards.remainingCards[playerIndex] > 0, "This player has no cards");
+        uint8 remainingCards = gameCards.remainingCards[playerIndex];
         euint8 index = _pickCard(remainingCards, TFHE.randEuint64()); // 0000100 means take the 3rd card
+
         ebool isBomb = TFHE.and(
-            TFHE.asEbool(game.bombCard[playerIndex]),
+            TFHE.asEbool(gameCards.bombCard[playerIndex]),
             TFHE.eq(index, uint8(2 ** (remainingCards - 1)))
         );
-
-        ebool isWire = _isWire(game, index, playerIndex);
-
+        ebool isWire = _isWire(gameCards, index, playerIndex);
         ebool isNull = TFHE.not(TFHE.or(isBomb, isWire));
 
-        euint4 bombCard = TFHE.and(game.bombCard[playerIndex], TFHE.asEuint4(TFHE.not(isBomb)));
-        game.bombCard[playerIndex] = bombCard;
-        TFHE.allow(bombCard, address(this));
-        TFHE.allow(bombCard, game.players[playerIndex]);
+        _updateCards(game, gameCards, playerIndex, isBomb, isWire, isNull);
 
-        euint4 wireCards = TFHE.sub(game.wireCards[playerIndex], TFHE.asEuint4(isWire));
-        game.wireCards[playerIndex] = wireCards;
-        TFHE.allow(wireCards, address(this));
-        TFHE.allow(wireCards, game.players[playerIndex]);
-
-        euint4 nullCards = TFHE.sub(game.nullCards[playerIndex], TFHE.asEuint4(isNull));
-        game.nullCards[playerIndex] = nullCards;
-        TFHE.allow(nullCards, address(this));
-        TFHE.allow(nullCards, game.players[playerIndex]);
-
-        game.remainingCards[playerIndex] -= 1;
+        gameCards.remainingCards[playerIndex] -= 1;
 
         euint4 cardPicked = TFHE.select(
             isBomb,
@@ -289,6 +283,34 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
         game.lastCardPicked = cardPicked;
         TFHE.allow(cardPicked, address(this));
 
+        _decryptCardPicked(gameId, playerIndex, cardPicked);
+    }
+
+    function _updateCards(
+        Game storage game,
+        Cards storage gameCards,
+        uint256 playerIndex,
+        ebool isBomb,
+        ebool isWire,
+        ebool isNull
+    ) internal {
+        euint4 bombCard = TFHE.and(gameCards.bombCard[playerIndex], TFHE.asEuint4(TFHE.not(isBomb)));
+        gameCards.bombCard[playerIndex] = bombCard;
+        TFHE.allow(bombCard, address(this));
+        TFHE.allow(bombCard, game.players[playerIndex]);
+
+        euint4 wireCards = TFHE.sub(gameCards.wireCards[playerIndex], TFHE.asEuint4(isWire));
+        gameCards.wireCards[playerIndex] = wireCards;
+        TFHE.allow(wireCards, address(this));
+        TFHE.allow(wireCards, game.players[playerIndex]);
+
+        euint4 nullCards = TFHE.sub(gameCards.nullCards[playerIndex], TFHE.asEuint4(isNull));
+        gameCards.nullCards[playerIndex] = nullCards;
+        TFHE.allow(nullCards, address(this));
+        TFHE.allow(nullCards, game.players[playerIndex]);
+    }
+
+    function _decryptCardPicked(uint256 gameId, uint256 playerIndex, euint4 cardPicked) internal {
         uint256[] memory cts = new uint256[](1);
         cts[0] = Gateway.toUint256(cardPicked);
         uint256 requestId = Gateway.requestDecryption(
@@ -307,9 +329,10 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
         uint256 gameId = params[0];
         uint256 playerIndex = params[1];
         Game storage game = games[gameId];
+        Cards storage gameCards = cards[gameId];
         if (card == 1) {
-            uint8 remainingWires = game.remainingWires - 1;
-            game.remainingWires = remainingWires;
+            uint8 remainingWires = gameCards.remainingWires - 1;
+            gameCards.remainingWires = remainingWires;
             emit CardPicked(params[0], playerIndex, "wire");
             if (remainingWires == 0) {
                 emit GoodGuysWin(gameId);
@@ -327,38 +350,38 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
 
         game.turnCurrentPlayer = game.players[playerIndex];
         if (game.turnIndex + 1 == game.players.length) {
-            nextTurn(game);
+            nextTurn(game, gameCards);
         } else {
             game.turnIndex += 1;
         }
     }
 
-    function nextTurn(Game storage game) internal {
+    function nextTurn(Game storage game, Cards storage gameCards) internal {
         if (game.turn + 1 == 4) {
             endGame(game);
             return;
         }
         game.turn += 1;
         game.dealNeeded = true;
-        delete game.nullCards;
-        delete game.wireCards;
-        delete game.bombCard;
-        delete game.cardsMask;
+        delete gameCards.nullCards;
+        delete gameCards.wireCards;
+        delete gameCards.bombCard;
+        delete gameCards.mask;
     }
 
     function endGame(Game storage game) internal {
         game.running = false;
     }
 
-    function _isWire(Game storage game, euint8 index, uint8 playerIndex) internal returns (ebool) {
-        euint8 rangeShift = TFHE.sub(TFHE.asEuint8(5), game.wireCards[playerIndex]);
+    function _isWire(Cards storage gameCards, euint8 index, uint8 playerIndex) internal returns (ebool) {
+        euint8 rangeShift = TFHE.sub(TFHE.asEuint8(5), gameCards.wireCards[playerIndex]);
         euint8 maskWire = TFHE.shr(TFHE.asEuint8(type(uint8).max), rangeShift);
         return TFHE.asEbool(TFHE.and(index, maskWire));
     }
 
     function getCards(uint256 gameId, uint256 playerIndex) public view returns (euint4[3] memory) {
-        Game storage game = games[gameId];
-        return [game.bombCard[playerIndex], game.wireCards[playerIndex], game.nullCards[playerIndex]];
+        Cards storage gameCards = cards[gameId];
+        return [gameCards.bombCard[playerIndex], gameCards.wireCards[playerIndex], gameCards.nullCards[playerIndex]];
     }
 
     modifier onlyDealNeeded(uint256 gameId) {

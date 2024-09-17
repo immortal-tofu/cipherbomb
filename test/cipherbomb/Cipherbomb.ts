@@ -35,9 +35,6 @@ describe("Cipherbomb", function () {
     expect(game[7]).to.equal(this.signers.alice.address);
     expect(game[8]).to.equal(0n);
     expect(game[9]).to.equal(0n);
-    expect(game[10]).to.equal(0n);
-    expect(game[11]).to.equal(0n);
-    expect(game[12]).to.equal(0n);
 
     const players = await this.cipherbomb.getPlayers(0);
     expect(players.length).to.equal(1);
@@ -272,28 +269,32 @@ describe("Cipherbomb", function () {
     ];
     await Promise.all(txCards.map((tx) => tx.wait()));
 
-    const encryptedCardsAlice = await this.cipherbomb.getCards(0, 0);
-    const aliceBomb = await reencrypt("alice", encryptedCardsAlice[0]);
-    const aliceWires = await reencrypt("alice", encryptedCardsAlice[1]);
-    const aliceNulls = await reencrypt("alice", encryptedCardsAlice[2]);
-    console.log("alice", `${aliceBomb} bomb`, `${aliceWires} wires`, `${aliceNulls} null`);
+    const pick1 = await this.cipherbomb.pickCard(0, 1);
 
-    const encryptedCardsBob = await this.cipherbomb.getCards(0, 1);
-    const bobBomb = await reencrypt("bob", encryptedCardsBob[0]);
-    const bobWires = await reencrypt("bob", encryptedCardsBob[1]);
-    const bobNulls = await reencrypt("bob", encryptedCardsBob[2]);
-    console.log("bob", `${bobBomb} bomb`, `${bobWires} wires`, `${bobNulls} null`);
+    await pick1.wait();
 
-    const encryptedCardsCarol = await this.cipherbomb.getCards(0, 2);
-    const carolBomb = await reencrypt("carol", encryptedCardsCarol[0]);
-    const carolWires = await reencrypt("carol", encryptedCardsCarol[1]);
-    const carolNulls = await reencrypt("carol", encryptedCardsCarol[2]);
-    console.log("carol", `${carolBomb} bomb`, `${carolWires} wires`, `${carolNulls} null`);
+    // const encryptedCardsAlice = await this.cipherbomb.getCards(0, 0);
+    // const aliceBomb = await reencrypt("alice", encryptedCardsAlice[0]);
+    // const aliceWires = await reencrypt("alice", encryptedCardsAlice[1]);
+    // const aliceNulls = await reencrypt("alice", encryptedCardsAlice[2]);
+    // console.log("alice", `${aliceBomb} bomb`, `${aliceWires} wires`, `${aliceNulls} null`);
 
-    const encryptedCardsDave = await this.cipherbomb.getCards(0, 3);
-    const daveBomb = await reencrypt("dave", encryptedCardsDave[0]);
-    const daveWires = await reencrypt("dave", encryptedCardsDave[1]);
-    const daveNulls = await reencrypt("dave", encryptedCardsDave[2]);
-    console.log("dave", `${daveBomb} bomb`, `${daveWires} wires`, `${daveNulls} null`);
+    // const encryptedCardsBob = await this.cipherbomb.getCards(0, 1);
+    // const bobBomb = await reencrypt("bob", encryptedCardsBob[0]);
+    // const bobWires = await reencrypt("bob", encryptedCardsBob[1]);
+    // const bobNulls = await reencrypt("bob", encryptedCardsBob[2]);
+    // console.log("bob", `${bobBomb} bomb`, `${bobWires} wires`, `${bobNulls} null`);
+
+    // const encryptedCardsCarol = await this.cipherbomb.getCards(0, 2);
+    // const carolBomb = await reencrypt("carol", encryptedCardsCarol[0]);
+    // const carolWires = await reencrypt("carol", encryptedCardsCarol[1]);
+    // const carolNulls = await reencrypt("carol", encryptedCardsCarol[2]);
+    // console.log("carol", `${carolBomb} bomb`, `${carolWires} wires`, `${carolNulls} null`);
+
+    // const encryptedCardsDave = await this.cipherbomb.getCards(0, 3);
+    // const daveBomb = await reencrypt("dave", encryptedCardsDave[0]);
+    // const daveWires = await reencrypt("dave", encryptedCardsDave[1]);
+    // const daveNulls = await reencrypt("dave", encryptedCardsDave[2]);
+    // console.log("dave", `${daveBomb} bomb`, `${daveWires} wires`, `${daveNulls} null`);
   });
 });
