@@ -56,7 +56,7 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
     event GameStart(uint256 gameId);
     event Turn(uint256 gameId, uint8 playerIndex);
 
-    event CardPicked(uint256 gameId, uint8 cardType);
+    event CardPicked(uint256 gameId, uint8 playerIndex);
     event CardDealed(uint256 gameId, uint8 turn);
 
     event GoodGuysWin(uint256 gameId);
@@ -276,6 +276,7 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
 
     function pickCard(uint256 gameId, uint8 playerIndex) public onlyPlayerTurn(gameId) {
         Game storage game = games[gameId];
+        require(game.remainingCards[playerIndex] > 0, "This player has no cards");
         uint8 remainingCards = game.remainingCards[playerIndex];
         euint8 index = _pickCard(remainingCards, TFHE.randEuint64()); // 0000100 means take the 3rd card
         ebool isBomb = TFHE.and(
@@ -301,6 +302,9 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
         game.nullCards[playerIndex] = nullCards;
         TFHE.allow(nullCards, address(this));
         TFHE.allow(nullCards, game.players[playerIndex]);
+
+        game.remainingCards[playerIndex] -= 1;
+        emit CardPicked(gameId, playerIndex);
     }
 
     function _isWire(Game storage game, euint8 index, uint8 playerIndex) internal returns (ebool) {
