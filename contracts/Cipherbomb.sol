@@ -31,10 +31,11 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
         euint4[8] wireCards;
         euint4[8] bombCard;
         uint8[8] remainingCards;
+        euint4 lastCardPicked;
         uint64 cardsMask;
         uint8 turn;
         address turnCurrentPlayer;
-        uint8 move;
+        uint8 turnIndex;
         uint8 remainingWires;
         euint8 bombPosition;
         euint64 roleRandomness;
@@ -56,7 +57,7 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
     event GameStart(uint256 gameId);
     event Turn(uint256 gameId, uint8 playerIndex);
 
-    event CardPicked(uint256 gameId, uint8 playerIndex);
+    event CardPicked(uint256 gameId, uint256 playerIndex, string cardType);
     event CardDealed(uint256 gameId, uint8 turn);
 
     event GoodGuysWin(uint256 gameId);
@@ -76,7 +77,7 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
         game.players.push(msg.sender); // Add msg.sender to the dynamic array
         game.turn = 0;
         game.turnCurrentPlayer = msg.sender;
-        game.move = 0;
+        game.turnIndex = 0;
         game.remainingWires = 0;
         game.bombPosition = euint8.wrap(0);
 
@@ -94,18 +95,18 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
         emit GameClose(gameId);
     }
 
-    function join(uint256 gameId) public onlyJoinable(gameId) {
+    function join(uint256 gameId) public onlyOpen(gameId) {
         require(games[gameId].players.length < MAX_PLAYERS, "The game has enough players (8)");
         addPlayer(gameId, msg.sender);
         emit PlayerJoined(gameId, msg.sender);
     }
 
-    function leave(uint256 gameId) public onlyJoinable(gameId) {
+    function leave(uint256 gameId) public onlyOpen(gameId) {
         removePlayer(gameId, msg.sender);
         emit PlayerLeft(gameId, msg.sender);
     }
 
-    function kick(uint256 gameId, address player) public onlyJoinable(gameId) onlyGameMaster(gameId) {
+    function kick(uint256 gameId, address player) public onlyGameMaster(gameId) onlyOpen(gameId) {
         removePlayer(gameId, player);
         emit PlayerKicked(gameId, player);
     }
@@ -141,7 +142,7 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
         return game.players;
     }
 
-    function start(uint256 gameId) public onlyGameOpen(gameId) {
+    function start(uint256 gameId) public onlyOpen(gameId) {
         Game storage game = games[gameId];
         require(game.players.length >= MIN_PLAYERS, "Not enough player to start");
         dealRoles(gameId, uint8(Math.max(game.players.length, 5)));
@@ -196,7 +197,7 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
         return game.roles[playerIndex];
     }
 
-    function deal(uint256 gameId) public {
+    function deal(uint256 gameId) public onlyDealNeeded(gameId) {
         Game storage game = games[gameId];
         require(game.dealNeeded, "Deal is not needed");
         game.cardsRandomness = TFHE.randEuint64();
@@ -218,7 +219,7 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
         game.cardsMask = cards;
     }
 
-    function takeCards(uint256 gameId, uint8 playerIndex) public {
+    function takeCards(uint256 gameId, uint8 playerIndex) public onlyPlayerTurn(gameId) {
         Game storage game = games[gameId];
 
         require(game.cardsMask != 0, "Cards mask not set");
@@ -246,31 +247,6 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
         game.wireCards[playerIndex] = wireCards;
         TFHE.allow(wireCards, address(this));
         TFHE.allow(wireCards, game.players[playerIndex]);
-        // TFHE.allow(cards, address(this));
-        // TFHE.allow(cards, game.players[playerIndex]);
-        // The idea is to create a euint8 where:
-        // - Most significant bit is bomb: 10000000
-        // - Least significant bits are wires and null cards, separated by a 0: 00011011
-        // Examples:
-        // Someone with 2 wires and 2 null cards: 00011011
-        // Someone with 3 wires and the bomb: 10000001110
-        // uint8 cardDistributed = 5 - game.turn;
-        // euint8 cards = TFHE.asEuint8(2 ** (cardDistributed) - 1); // For 5 cards, 00011111
-        // ebool hasBomb = TFHE.ge(cardDistribution, uint64(1 << ((cardDistributed * game.players.length) - 1)));
-        // cards = TFHE.asEuint8(2 ** (cardDistributed) - 1);
-        // euint8 first8 = TFHE.asEuint8(cardDistribution); // wires are on right
-        // euint8 wireMask = TFHE.asEuint8(2 ** cardDistributed);
-        // for (uint256 i; i < game.remainingWires; i += 1) {
-        //     ebool hasWire = TFHE.asEbool(TFHE.and(first8, TFHE.asEuint8(1 << i)));
-        //     // Remove the null card (or not)
-        //     cards = TFHE.shr(cards, TFHE.asEuint8(hasWire));
-        //     // Add the wire (or not)
-        //     cards = TFHE.select(hasWire, TFHE.or(cards, wireMask), cards);
-        // }
-        // cards = TFHE.select(hasBomb, TFHE.or(TFHE.shr(cards, 1), TFHE.asEuint8(128)), cards);
-        // game.cards[playerIndex] = cards;
-        // TFHE.allow(cards, address(this));
-        // TFHE.allow(cards, game.players[playerIndex]);
         game.remainingCards[playerIndex] = cardDistributed;
     }
 
@@ -304,7 +280,74 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
         TFHE.allow(nullCards, game.players[playerIndex]);
 
         game.remainingCards[playerIndex] -= 1;
-        emit CardPicked(gameId, playerIndex);
+
+        euint4 cardPicked = TFHE.select(
+            isBomb,
+            TFHE.asEuint4(2),
+            TFHE.select(isWire, TFHE.asEuint4(1), TFHE.asEuint4(0))
+        );
+        game.lastCardPicked = cardPicked;
+        TFHE.allow(cardPicked, address(this));
+
+        uint256[] memory cts = new uint256[](1);
+        cts[0] = Gateway.toUint256(cardPicked);
+        uint256 requestId = Gateway.requestDecryption(
+            cts,
+            this.setPickedCard.selector,
+            0,
+            block.timestamp + 1000,
+            false
+        );
+        addParamsUint256(requestId, gameId);
+        addParamsUint256(requestId, playerIndex);
+    }
+
+    function setPickedCard(uint256 requestId, uint8 card) public onlyGateway {
+        uint256[] memory params = getParamsUint256(requestId);
+        uint256 gameId = params[0];
+        uint256 playerIndex = params[1];
+        Game storage game = games[gameId];
+        if (card == 1) {
+            uint8 remainingWires = game.remainingWires - 1;
+            game.remainingWires = remainingWires;
+            emit CardPicked(params[0], playerIndex, "wire");
+            if (remainingWires == 0) {
+                emit GoodGuysWin(gameId);
+                endGame(game);
+            }
+        } else if (card == 2) {
+            emit CardPicked(params[0], playerIndex, "bomb");
+            emit BadGuysWin(gameId, "bomb");
+            endGame(game);
+            return;
+        } else {
+            emit CardPicked(params[0], playerIndex, "null");
+            return;
+        }
+
+        game.turnCurrentPlayer = game.players[playerIndex];
+        if (game.turnIndex + 1 == game.players.length) {
+            nextTurn(game);
+        } else {
+            game.turnIndex += 1;
+        }
+    }
+
+    function nextTurn(Game storage game) internal {
+        if (game.turn + 1 == 4) {
+            endGame(game);
+            return;
+        }
+        game.turn += 1;
+        game.dealNeeded = true;
+        delete game.nullCards;
+        delete game.wireCards;
+        delete game.bombCard;
+        delete game.cardsMask;
+    }
+
+    function endGame(Game storage game) internal {
+        game.running = false;
     }
 
     function _isWire(Game storage game, euint8 index, uint8 playerIndex) internal returns (ebool) {
@@ -318,20 +361,28 @@ contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
         return [game.bombCard[playerIndex], game.wireCards[playerIndex], game.nullCards[playerIndex]];
     }
 
-    modifier onlyJoinable(uint256 gameId) {
-        require(games[gameId].open && !games[gameId].running, "The game is not joinable");
+    modifier onlyDealNeeded(uint256 gameId) {
+        Game storage game = games[gameId];
+        require(game.dealNeeded && game.running, "The game doesn't need a deal");
         _;
     }
 
-    modifier onlyGameOpen(uint256 gameId) {
+    modifier onlyOpen(uint256 gameId) {
         Game storage game = games[gameId];
         require(game.open && !game.running, "The game is not open");
+        _;
+    }
+
+    modifier onlyRunning(uint256 gameId) {
+        Game storage game = games[gameId];
+        require(game.running, "The game is not running");
         _;
     }
 
     modifier onlyPlayerTurn(uint256 gameId) {
         bool exists = false;
         Game storage game = games[gameId];
+        require(game.running, "This game is not running");
         require(game.turnCurrentPlayer == msg.sender, "This is not your turn!");
         for (uint8 i; i < game.players.length; i++) {
             if (game.players[i] == msg.sender) exists = true;
