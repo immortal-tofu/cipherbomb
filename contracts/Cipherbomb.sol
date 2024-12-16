@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 pragma solidity ^0.8.24;
-
+import { SepoliaZamaFHEVMConfig } from "fhevm/config/ZamaFHEVMConfig.sol";
+import { SepoliaZamaGatewayConfig } from "fhevm/config/ZamaGatewayConfig.sol";
 import "fhevm/lib/TFHE.sol";
 import "fhevm/gateway/GatewayCaller.sol";
 import "./Dealer.sol";
@@ -9,7 +10,7 @@ import "./Dealer.sol";
 import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
-contract Cipherbomb is Dealer, GatewayCaller, Ownable2Step {
+contract Cipherbomb is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayConfig, Dealer, GatewayCaller, Ownable2Step {
     uint256 public constant MIN_PLAYERS = 4;
     uint256 public constant MAX_PLAYERS = 8;
 

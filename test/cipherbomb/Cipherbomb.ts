@@ -1,9 +1,8 @@
 import { expect } from "chai";
 
 import { awaitAllDecryptionResults } from "../asyncDecrypt";
-import { createInstances } from "../instance";
+import { createInstance } from "../instance";
 import { getSigners, initSigners } from "../signers";
-import { FhevmInstances } from "../types";
 import { deployCipherbombFixture } from "./Cipherbomb.fixture";
 
 describe("Cipherbomb", function () {
@@ -16,7 +15,7 @@ describe("Cipherbomb", function () {
     const contract = await deployCipherbombFixture();
     this.contractAddress = await contract.getAddress();
     this.cipherbomb = contract;
-    this.instances = await createInstances(this.signers);
+    this.fhevm = await createInstance();
   });
 
   it("should create a game", async function () {
@@ -114,15 +113,15 @@ describe("Cipherbomb", function () {
     await start.wait();
     await awaitAllDecryptionResults();
 
-    const reencrypt = async (user: keyof FhevmInstances, handle: bigint) => {
-      const { publicKey, privateKey } = this.instances[user].generateKeypair();
-      const eip712 = this.instances[user].createEIP712(publicKey, this.contractAddress);
+    const reencrypt = async (user: string, handle: bigint) => {
+      const { publicKey, privateKey } = this.fhevm.generateKeypair();
+      const eip712 = this.fhevm.createEIP712(publicKey, this.contractAddress);
       const signature = await this.signers[user].signTypedData(
         eip712.domain,
         { Reencrypt: eip712.types.Reencrypt },
         eip712.message,
       );
-      return await this.instances[user].reencrypt(
+      return await this.fhevm.reencrypt(
         handle,
         privateKey,
         publicKey,
@@ -169,15 +168,15 @@ describe("Cipherbomb", function () {
     await start.wait();
     await awaitAllDecryptionResults();
 
-    const reencrypt = async (user: keyof FhevmInstances, handle: bigint) => {
-      const { publicKey, privateKey } = this.instances[user].generateKeypair();
-      const eip712 = this.instances[user].createEIP712(publicKey, this.contractAddress);
+    const reencrypt = async (user: string, handle: bigint) => {
+      const { publicKey, privateKey } = this.fhevm.generateKeypair();
+      const eip712 = this.fhevm.createEIP712(publicKey, this.contractAddress);
       const signature = await this.signers[user].signTypedData(
         eip712.domain,
         { Reencrypt: eip712.types.Reencrypt },
         eip712.message,
       );
-      return await this.instances[user].reencrypt(
+      return await this.fhevm.reencrypt(
         handle,
         privateKey,
         publicKey,
@@ -238,24 +237,6 @@ describe("Cipherbomb", function () {
     const start = await this.cipherbomb.start(0);
     await start.wait();
     await awaitAllDecryptionResults();
-
-    const reencrypt = async (user: keyof FhevmInstances, handle: bigint) => {
-      const { publicKey, privateKey } = this.instances[user].generateKeypair();
-      const eip712 = this.instances[user].createEIP712(publicKey, this.contractAddress);
-      const signature = await this.signers[user].signTypedData(
-        eip712.domain,
-        { Reencrypt: eip712.types.Reencrypt },
-        eip712.message,
-      );
-      return await this.instances[user].reencrypt(
-        handle,
-        privateKey,
-        publicKey,
-        signature.replace("0x", ""),
-        this.contractAddress,
-        this.signers[user].address,
-      );
-    };
 
     const deal = await this.cipherbomb.deal(0);
     await deal.wait();

@@ -1,26 +1,23 @@
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { ethers } from "hardhat";
 
+import { ACCOUNT_NAMES } from "./constants";
+
+type AccountNames = (typeof ACCOUNT_NAMES)[number];
+
 export interface Signers {
-  alice: HardhatEthersSigner;
-  bob: HardhatEthersSigner;
-  carol: HardhatEthersSigner;
-  dave: HardhatEthersSigner;
-  eve: HardhatEthersSigner;
+  [K in AccountNames]: HardhatEthersSigner;
 }
 
-let signers: Signers;
+const signers: Signers = {} as Signers;
 
 export const initSigners = async (): Promise<void> => {
-  if (!signers) {
+  if (Object.entries(signers).length === 0) {
     const eSigners = await ethers.getSigners();
-    signers = {
-      alice: eSigners[0],
-      bob: eSigners[1],
-      carol: eSigners[2],
-      dave: eSigners[3],
-      eve: eSigners[4],
-    };
+    for (let index = 0; index < ACCOUNT_NAMES.length; index++) {
+      const name = ACCOUNT_NAMES[index];
+      signers[name] = eSigners[index];
+    }
   }
 };
 
