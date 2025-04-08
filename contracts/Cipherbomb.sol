@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: MIT
-
 pragma solidity ^0.8.24;
+
 import { SepoliaZamaFHEVMConfig } from "fhevm/config/ZamaFHEVMConfig.sol";
 import { SepoliaZamaGatewayConfig } from "fhevm/config/ZamaGatewayConfig.sol";
 import "fhevm/lib/TFHE.sol";
 import "fhevm/gateway/GatewayCaller.sol";
-import "./Dealer.sol";
-
 import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
+import "./Dealer.sol";
 
 contract Cipherbomb is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayConfig, Dealer, GatewayCaller, Ownable2Step {
     uint256 public constant MIN_PLAYERS = 4;
@@ -48,31 +47,31 @@ contract Cipherbomb is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayConfig, Dealer,
     Game[] public games;
     Cards[] public cards;
 
-    mapping(address => string) nicknames;
+    mapping(address => string) nicknames; // TODO: integrate later
 
-    event PlayerJoined(uint256 gameId, address player);
-    event PlayerLeft(uint256 gameId, address player);
-    event PlayerKicked(uint256 gameId, address player);
-    event PlayerNameChanged(address player, string name);
+    event PlayerJoined(uint256 indexed gameId, address indexed player);
+    event PlayerLeft(uint256 indexed gameId, address indexed player);
+    event PlayerKicked(uint256 indexed gameId, address indexed player);
+    event PlayerNameChanged(address indexed player, string name);
 
-    event NewGame(uint256 gameId);
-    event GameOpen(uint256 gameId);
-    event GameClose(uint256 gameId);
-    event GameStart(uint256 gameId);
-    event Turn(uint256 gameId, uint8 playerIndex);
+    event NewGame(uint256 indexed gameId);
+    event GameOpen(uint256 indexed gameId);
+    event GameClose(uint256 indexed gameId);
+    event GameStart(uint256 indexed gameId);
+    event Turn(uint256 indexed gameId, uint8 playerIndex);
 
-    event CardPicked(uint256 gameId, uint256 playerIndex, string cardType);
-    event CardDealed(uint256 gameId, uint8 turn);
+    event CardPicked(uint256 indexed gameId, uint256 playerIndex, string cardType);
+    event CardDealed(uint256 indexed gameId, uint8 turn);
 
-    event GoodGuysWin(uint256 gameId);
-    event BadGuysWin(uint256 gameId, string reason);
+    event GoodGuysWin(uint256 indexed gameId);
+    event BadGuysWin(uint256 indexed gameId, string reason);
 
     // event GoodDeal(uint256 gameId);
     // event FalseDeal(uint256 gameId);
 
     constructor() Ownable(msg.sender) {}
 
-    function createGame() public {
+    function createGame() external {
         Game storage game = games.push();
         game.admin = msg.sender;
         game.running = false;
@@ -90,49 +89,50 @@ contract Cipherbomb is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayConfig, Dealer,
         emit NewGame(gameId);
     }
 
-    function openGame(uint256 gameId) public onlyGameMaster(gameId) {
+    function openGame(uint256 gameId) external onlyGameMaster(gameId) {
         games[gameId].open = true;
         emit GameOpen(gameId);
     }
 
-    function closeGame(uint256 gameId) public onlyGameMaster(gameId) {
+    function closeGame(uint256 gameId) external onlyGameMaster(gameId) {
         games[gameId].open = false;
         emit GameClose(gameId);
     }
 
-    function join(uint256 gameId) public onlyOpen(gameId) {
+    function join(uint256 gameId) external onlyOpen(gameId) {
         require(games[gameId].players.length < MAX_PLAYERS, "The game has enough players (8)");
-        addPlayer(gameId, msg.sender);
+        _addPlayer(gameId, msg.sender);
         emit PlayerJoined(gameId, msg.sender);
     }
 
-    function leave(uint256 gameId) public onlyOpen(gameId) {
-        removePlayer(gameId, msg.sender);
+    function leave(uint256 gameId) external onlyOpen(gameId) {
+        _removePlayer(gameId, msg.sender);
         emit PlayerLeft(gameId, msg.sender);
     }
 
-    function kick(uint256 gameId, address player) public onlyGameMaster(gameId) onlyOpen(gameId) {
-        removePlayer(gameId, player);
+    function kick(uint256 gameId, address player) external onlyGameMaster(gameId) onlyOpen(gameId) {
+        _removePlayer(gameId, player);
         emit PlayerKicked(gameId, player);
     }
 
-    function addPlayer(uint256 gameId, address player) internal onlyNewPlayer(gameId, player) {
+    function _addPlayer(uint256 gameId, address player) internal onlyNewPlayer(gameId, player) {
         Game storage game = games[gameId];
         game.players.push(player);
     }
 
-    function removePlayer(uint256 gameId, address player) internal onlyPlayer(gameId, player) {
+    function _removePlayer(uint256 gameId, address player) internal onlyPlayer(gameId, player) {
         bool found = false;
         Game storage game = games[gameId];
-        for (uint256 i = 0; i < game.players.length; i += 1) {
+        uint256 playerLen = game.players.length;
+        for (uint256 i; i < playerLen; i += 1) {
             if (found) {
-                if (i == game.players.length - 1) {
+                if (i == playerLen - 1) {
                     game.players.pop();
                 } else {
                     game.players[i] = game.players[i + 1];
                 }
             } else if (game.players[i] == player) {
-                if (i == game.players.length - 1) {
+                if (i == playerLen - 1) {
                     game.players.pop();
                 } else {
                     game.players[i] = game.players[i + 1];
@@ -142,12 +142,12 @@ contract Cipherbomb is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayConfig, Dealer,
         }
     }
 
-    function getPlayers(uint256 gameId) public view returns (address[] memory) {
+    function getPlayers(uint256 gameId) external view returns (address[] memory) {
         Game storage game = games[gameId];
         return game.players;
     }
 
-    function start(uint256 gameId) public onlyOpen(gameId) {
+    function start(uint256 gameId) external onlyOpen(gameId) {
         Game storage game = games[gameId];
         Cards storage gameCards = cards[gameId];
         require(game.players.length >= MIN_PLAYERS, "Not enough player to start");
@@ -161,16 +161,15 @@ contract Cipherbomb is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayConfig, Dealer,
         emit GameStart(gameId);
     }
 
-    function dealRoles(uint256 gameId, uint8 numberOfPlayers) internal returns (euint8) {
+    function dealRoles(uint256 gameId, uint8 numberOfPlayers) internal {
         Game storage game = games[gameId];
 
         euint64 random = TFHE.randEuint64();
-        // euint64 random = TFHE.asEuint64(0);
-        TFHE.allow(random, address(this));
+        TFHE.allowThis(random);
         game.roleRandomness = random;
 
         euint8 encryptedRoles = _dealRoles(numberOfPlayers, random);
-        TFHE.allow(encryptedRoles, address(this));
+        TFHE.allowThis(encryptedRoles);
 
         uint256[] memory cts = new uint256[](1);
         cts[0] = Gateway.toUint256(encryptedRoles);
@@ -178,13 +177,13 @@ contract Cipherbomb is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayConfig, Dealer,
         addParamsUint256(requestId, gameId);
     }
 
-    function setRoles(uint256 requestId, uint8 roles) public onlyGateway {
+    function setRoles(uint256 requestId, uint8 roles) external onlyGateway {
         uint256[] memory params = getParamsUint256(requestId);
         Game storage game = games[params[0]];
         game.roleMask = roles;
     }
 
-    function takeRole(uint256 gameId, uint8 playerIndex) public {
+    function takeRole(uint256 gameId, uint8 playerIndex) external {
         Game storage game = games[gameId];
         euint8 role = _getRole(game.roleMask, playerIndex, game.roleRandomness);
         ebool boolRole;
@@ -194,16 +193,16 @@ contract Cipherbomb is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayConfig, Dealer,
             boolRole = TFHE.le(role, 4);
         }
         game.roles[playerIndex] = boolRole;
-        TFHE.allow(boolRole, address(this));
+        TFHE.allowThis(boolRole);
         TFHE.allow(boolRole, game.players[playerIndex]);
     }
 
-    function getRole(uint256 gameId, uint256 playerIndex) public view returns (ebool) {
+    function getRole(uint256 gameId, uint256 playerIndex) external view returns (ebool) {
         Game storage game = games[gameId];
         return game.roles[playerIndex];
     }
 
-    function deal(uint256 gameId) public onlyDealNeeded(gameId) {
+    function deal(uint256 gameId) external onlyDealNeeded(gameId) {
         Game storage game = games[gameId];
         Cards storage gameCards = cards[gameId];
         require(game.dealNeeded, "Deal is not needed");
@@ -220,13 +219,13 @@ contract Cipherbomb is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayConfig, Dealer,
         emit CardDealed(gameId, game.turn);
     }
 
-    function setCards(uint256 requestId, uint64 mask) public onlyGateway {
+    function setCards(uint256 requestId, uint64 mask) external onlyGateway {
         uint256[] memory params = getParamsUint256(requestId);
         Cards storage gameCards = cards[params[0]];
         gameCards.mask = mask;
     }
 
-    function takeCards(uint256 gameId, uint8 playerIndex) public onlyPlayerTurn(gameId) {
+    function takeCards(uint256 gameId, uint8 playerIndex) external onlyPlayerTurn(gameId) {
         Game storage game = games[gameId];
         Cards storage gameCards = cards[gameId];
 
@@ -258,7 +257,7 @@ contract Cipherbomb is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayConfig, Dealer,
         gameCards.remainingCards[playerIndex] = cardDistributed;
     }
 
-    function pickCard(uint256 gameId, uint8 playerIndex) public onlyPlayerTurn(gameId) {
+    function pickCard(uint256 gameId, uint8 playerIndex) external onlyPlayerTurn(gameId) {
         Game storage game = games[gameId];
         Cards storage gameCards = cards[gameId];
         require(gameCards.remainingCards[playerIndex] > 0, "This player has no cards");
@@ -325,7 +324,7 @@ contract Cipherbomb is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayConfig, Dealer,
         addParamsUint256(requestId, playerIndex);
     }
 
-    function setPickedCard(uint256 requestId, uint8 card) public onlyGateway {
+    function setPickedCard(uint256 requestId, uint8 card) external onlyGateway {
         uint256[] memory params = getParamsUint256(requestId);
         uint256 gameId = params[0];
         uint256 playerIndex = params[1];
@@ -337,12 +336,12 @@ contract Cipherbomb is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayConfig, Dealer,
             emit CardPicked(params[0], playerIndex, "wire");
             if (remainingWires == 0) {
                 emit GoodGuysWin(gameId);
-                endGame(game);
+                _endGame(game);
             }
         } else if (card == 2) {
             emit CardPicked(params[0], playerIndex, "bomb");
             emit BadGuysWin(gameId, "bomb");
-            endGame(game);
+            _endGame(game);
             return;
         } else {
             emit CardPicked(params[0], playerIndex, "null");
@@ -351,15 +350,15 @@ contract Cipherbomb is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayConfig, Dealer,
 
         game.turnCurrentPlayer = game.players[playerIndex];
         if (game.turnIndex + 1 == game.players.length) {
-            nextTurn(game, gameCards);
+            _nextTurn(game, gameCards);
         } else {
             game.turnIndex += 1;
         }
     }
 
-    function nextTurn(Game storage game, Cards storage gameCards) internal {
+    function _nextTurn(Game storage game, Cards storage gameCards) internal {
         if (game.turn + 1 == 4) {
-            endGame(game);
+            _endGame(game);
             return;
         }
         game.turn += 1;
@@ -370,7 +369,7 @@ contract Cipherbomb is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayConfig, Dealer,
         delete gameCards.mask;
     }
 
-    function endGame(Game storage game) internal {
+    function _endGame(Game storage game) internal {
         game.running = false;
     }
 
@@ -380,8 +379,8 @@ contract Cipherbomb is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayConfig, Dealer,
         return TFHE.asEbool(TFHE.and(index, maskWire));
     }
 
-    function getCards(uint256 gameId, uint256 playerIndex) public view returns (euint4[3] memory) {
-        Cards storage gameCards = cards[gameId];
+    function getCards(uint256 gameId, uint256 playerIndex) external view returns (euint4[3] memory) {
+        Cards memory gameCards = cards[gameId];
         return [gameCards.bombCard[playerIndex], gameCards.wireCards[playerIndex], gameCards.nullCards[playerIndex]];
     }
 
@@ -392,23 +391,23 @@ contract Cipherbomb is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayConfig, Dealer,
     }
 
     modifier onlyOpen(uint256 gameId) {
-        Game storage game = games[gameId];
+        Game memory game = games[gameId];
         require(game.open && !game.running, "The game is not open");
         _;
     }
 
     modifier onlyRunning(uint256 gameId) {
-        Game storage game = games[gameId];
-        require(game.running, "The game is not running");
+        require(games[gameId].running, "The game is not running");
         _;
     }
 
     modifier onlyPlayerTurn(uint256 gameId) {
         bool exists = false;
-        Game storage game = games[gameId];
+        Game memory game = games[gameId];
         require(game.running, "This game is not running");
         require(game.turnCurrentPlayer == msg.sender, "This is not your turn!");
-        for (uint8 i; i < game.players.length; i++) {
+        uint256 playerLen = game.players.length;
+        for (uint8 i; i < playerLen; i++) {
             if (game.players[i] == msg.sender) exists = true;
         }
         require(exists, "This player doesn't exist");
@@ -417,8 +416,9 @@ contract Cipherbomb is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayConfig, Dealer,
 
     modifier onlyPlayer(uint256 gameId, address player) {
         bool exists = false;
-        Game storage game = games[gameId];
-        for (uint8 i; i < game.players.length; i++) {
+        Game memory game = games[gameId];
+        uint256 playerLen = game.players.length;
+        for (uint8 i; i < playerLen; i++) {
             if (game.players[i] == player) exists = true;
         }
         require(exists, "This player doesn't exist");
@@ -427,8 +427,9 @@ contract Cipherbomb is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayConfig, Dealer,
 
     modifier onlyNewPlayer(uint256 gameId, address player) {
         bool newPlayer = true;
-        Game storage game = games[gameId];
-        for (uint8 i; i < game.players.length; i++) {
+        Game memory game = games[gameId];
+        uint256 playerLen = game.players.length;
+        for (uint8 i; i < playerLen; i++) {
             if (game.players[i] == player) newPlayer = false;
         }
         require(newPlayer);
